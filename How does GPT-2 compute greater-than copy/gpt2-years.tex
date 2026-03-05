@@ -1,0 +1,552 @@
+\documentclass{article}
+
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2022
+
+
+% ready for submission
+\PassOptionsToPackage{numbers, compress}{natbib}
+\usepackage[final]{neurips_2023}
+
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2022}
+
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2022}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2022}
+
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\usepackage{graphicx}
+\usepackage{comment}
+\usepackage{floatrow}
+\usepackage{amsmath}
+\usepackage{cleveref}
+
+\newfloatcommand{capbtabbox}{table}[][\FBwidth]
+\newcommand{\XX}{\texttt{XX}}
+\newcommand{\YY}{\texttt{YY}}
+\newcommand{\link}[2]{\texttt{{\color{blue}\href{#1}{#2}}}}
+
+\title{How does GPT-2 compute greater-than?: Interpreting mathematical abilities in a pre-trained language model}
+
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+\author{Michael Hanna\thanks{Work performed as part of Redwood Research's REMIX program.}\\
+	ILLC\\
+	University of Amsterdam\\
+	\texttt{m.w.hanna@uva.nl} \\
+      \And
+	Ollie Liu\footnotemark[1]\\
+	University of\\
+        Southern California\\
+	\texttt{zliu2898@usc.edu} \\
+      \And
+	Alexandre Variengien\thanks{Work performed during an internship. Now at Conjecture.}\\
+	Redwood Research \\
+        \texttt{alexandre.variengien@gmail.com} \\
+}
+
+\begin{document}	
+	\maketitle
+	\begin{abstract}  
+        Pre-trained language models can be surprisingly adept at tasks they were not explicitly trained on, but how they implement these capabilities is poorly understood. In this paper, we investigate the basic mathematical abilities often acquired by pre-trained language models. Concretely, we use mechanistic interpretability techniques to explain the (limited) mathematical abilities of GPT-2 small. As a case study, we examine its ability to take in sentences such as ``The war lasted from the year 1732 to the year 17'', and predict valid two-digit end years (years $> 32$). We first identify a circuit, a small subset of GPT-2 small's computational graph that computes this task's output. Then, we explain the role of each circuit component, showing that GPT-2 small's final multi-layer perceptrons boost the probability of end years greater than the start year. Finally, we find related tasks that activate our circuit. Our results suggest that GPT-2 small computes greater-than using a complex mechanism that activates across diverse contexts.
+	
+        % The abstract must be limited to one paragraph.
+	\end{abstract}
+
+    \setcounter{footnote}{0}     
+    \section{Introduction}
+    % Why study pre-trained transformer LMs?
+    As pre-trained language models (LMs) have grown in both size and effectiveness, their abilities have expanded to include a wide range of tasks, even without fine-tuning \citep{brown2020gpt3}. Such abilities can range from translation to text classification and multi-step reasoning \citep{wei2022emergent}. Yet despite heavy study of these models \citep{rogers-etal-2020-primer,rauker2022transparent, li2023emergent}, how LMs implement these abilities is still poorly understood. 
+
+    In this paper, we study one such LM ability, performing mathematics. Mathematical ability has long been of interest in natural language processing: models have been trained to perform tasks such as simple arithmetic and word problems \citep{wang-etal-2017-deep,thawani-etal-2021-representing}. Researchers have also fine-tuned pre-trained LMs on these tasks, instead of training from scratch \citep{geva-etal-2020-injecting,lewkowycz2022solving}. Recently, however, LMs seem to have acquired significant mathematical abilities without explicit training on such tasks \citep{brown2020gpt3,nye2021work,chowdhery2022palm,frieder2023mathematical}.
+
+    How these mathematical abilities arise in LMs is largely unknown. While studies have investigated pre-trained LMs' mathematical abilities \citep{Nogueira2021InvestigatingTL,qian2022limitations}, existing work is behavioral: it explains \textit{what} models can do, rather than \textit{how} they do it. Most work that delves into model internals does so using models trained directly on such tasks: \citet{hupkes2018visualisation} probe such models for hierarchical structure, while \citet{liu2022towards} and \citet{nanda2023progress} study toy models trained on modular addition. Some studies do examine the structure of number representations in pre-trained models \citep{naik-etal-2019-exploring,wallace-etal-2019-nlp}; however, they do not provide a causal explanation about how these models leverage these representations to perform math. The mechanisms underlying pre-trained LMs' mathematical abilities thus remain unclear.
+    
+    To understand the roots of these mathematical abilities, we study them in GPT-2 small\footnote{Further references to GPT-2 refer to GPT-2 small} \citep{radford2019language}, which we show still possesses such abilities, despite its small size. This small size enables us to investigate its mathematical abilities at a very low level. Concretely, we adopt a circuits perspective \citep{olah2020zoom,elhage2021mathematical}, searching for a minimal subset of nodes in GPT-2's computational graph responsible for this ability. To do so, we use fine-grained, causal methods from mechanistic interpretability, that allow us to identify nodes in GPT-2 that belong in our circuit, and then prove our circuit's correctness, through carefully designed causal ablations \citep{goldowskydill2023localizing}. We also use mechanistic methods to pinpoint how each circuit component contributes to the mathematical task at hand. The end result of this case study is a detailed description of GPT-2's ability to perform one simple mathematical operation: greater-than.
+    
+    % Paper Structure
+    Our investigation is structured as follows. We first define year-span prediction, a task that elicits mathematical behavior in GPT-2 (\Cref{sec:task}). We give the model input like ``The war lasted from the year 1732 to the year 17''; it assigns higher probability to the set of years greater than 32. We next search for the circuit responsible for computing this task, and explain each circuit component's role (\Cref{sec:circuit}).  We find a set of multi-layer perceptrons (MLPs) that computes greater-than, our operation of interest. We then investigate how these MLPs compute greater-than (\Cref{sec:in-depth-investigations}). Finally, we find other tasks requiring greater-than to which this circuit generalizes (\Cref{sec:generalization}).
+
+    % Main points
+    Via these experiments, we accomplish two main goals. First, we find a circuit for greater-than in GPT-2. This brings new mechanistic insights into math in pre-trained LMs, and builds on the limited existing work on circuits in pre-trained LMs \citep{wang2023interpretability} by examining a new task with a wide output space and rich structure. Second, we show that GPT-2's greater-than relies on a complex circuit that activates across contexts. This mechanism surpasses simple memorization, but does not reflect full mathematical competence; it lies between memorization and generalization. We thus add nuance to the memorization-generalization dichotomy, and take the first step towards a rich characterization of the states in between them.
+	
+    \section{Year-Span Prediction in GPT-2}\label{sec:task}
+    GPT-2's size is ideal for low-level study, especially with potentially resource-intensive techniques like those in \Cref{sec:path-patching}. However, this small size poses a challenge: GPT-2 is less capable than larger LMs, which still often struggle with mathematical tasks \citep{mishra-etal-2022-numglue}. With this in mind, we craft a simple task to elicit a mathematical behavior in GPT-2, and verify that GPT-2 produces said behavior.
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.6\linewidth]{imgs/task_example}
+        \caption{Year-span prediction example (\XX=17 and \YY=32) with sample (in)valid output years.} \label{fig:task-example}
+    \end{figure}
+ 
+    \paragraph{Task and Dataset} We focus on a simple mathematical operation, greater-than, framed as it might naturally appear in text: an incomplete sentence following the template ``The \texttt{<noun>} lasted from the year \XX\YY\ to the year \XX'' (\Cref{fig:task-example}). The model should assign higher probability to years $>$\YY. We automatically generate sentences using this template. We draw the nouns from a pool of 120 nouns that could have a duration, found using FrameNet \citep{baker-etal-1998-berkeley-framenet}; \Cref{app:potential-nouns} lists the full pool of nouns. We sample the century \XX\ of the sentence from $\{11, \ldots, 17\}$, and the start year \YY\ from $\{02, \ldots, 98\}$. 
+ 
+    We impose the latter constraints because we want GPT-2 to be able to predict a target as it would naturally be tokenized. However, GPT-2 uses byte-pair encoding, in which frequent strings more often appear as single tokens \citep{sennrich-etal-2016-neural}. Thus, more frequent years\textemdash multiples of 100 or those in the 20th century\textemdash are tokenized as single tokens; less frequent years are broken into two. This causes a problem: GPT-2 could predict ``[00]'' after ``[17]', but ``1700'' is always tokenized as ``[1700]'' in normal data and never as ``[17][00]''. So, we exclude all single-token years from our year pool. Finally, we want each example to have at least one correct and one incorrect validly tokenized answer, so we exclude each century's highest and lowest validly tokenized year from the pool of start years.	
+	
+	\begin{figure}
+		\centering
+		\includegraphics[scale=0.3]{imgs/probability-heatmap.pdf}
+		\includegraphics[scale=0.35]{imgs/probability-slice.pdf}
+		\caption{\textbf{Left}: Probability heatmap of GPT-2 for year-span prediction. Y-axis: the sentence's start year (\YY). X-axis: the two-digit output year candidate. (X,Y): Mean probability assigned by GPT-2 to output year X given input year Y. \textbf{Right}: GPT-2's average output distribution when \YY=41} \label{fig:gpt2-behavioral}
+	\end{figure}
+	
+    % Model performance on the task
+    \paragraph{Qualitative Evaluation} We first qualitatively analyze GPT-2's baseline behavior on this task by running it on a dataset of 10,000 examples. Each example has a noun randomly drawn from our 120 nouns, and a year drawn randomly from the 768 valid years from 1000 to 1899. For each \YY\ in $\{2, \ldots, 98\}$, we take the average of GPT-2's probability distribution over predicted years, for all examples with start year \YY; we visualize these average distributions in \Cref{fig:gpt2-behavioral}. 
+    
+    GPT-2 appears to perform greater-than on our year-span prediction task: it creates a sharp cutoff between invalid end years ($\leq \mathtt{YY}$), and valid end years ($> \mathtt{YY}$). It assigns higher probability to the latter years, though not all of them: 15-20 years after \YY, probabilities drop. The exact length of the year-span receiving higher probability likely reflects patterns in GPT-2's training data. In the real-world, and likely also in GPT-2's training data, our prompts' nouns, such as a ``war,'' ``dynasty'', or ``pilgrimage'', have average durations that GPT-2 may have learned, influencing its output.
+
+    \paragraph{Quantitative Evaluation} We design two numerical measures of model performance for the purpose of quantitative assessment. Let $\mathtt{YY}\in \{02, \ldots, 98\}$ be the start year of our sentence, and $p_y$  be the probability of a two-digit output year $y$. We define the following two metrics:
+    \begin{itemize}
+        \item \textbf{Probability difference}: $\sum_{y>\mathtt{YY}} p_{y} - \sum_{y \leq \mathtt{YY}} p_{y}$
+        \item \textbf{Cutoff sharpness}: $p_{\mathtt{YY}+1} - p_{\mathtt{YY}-1}$
+    \end{itemize}
+  
+	Probability difference verifies that model output reflects a greater-than operation by measuring the extent to which GPT-2 assigns higher probability to years $>$\YY. It ranges from -1 to 1; higher is better. In contrast, cutoff sharpness is not intrinsically connected to greater-than. However, it quantifies an interesting behavior of GPT-2: the sharp cutoff between valid and invalid years. In doing so, it checks that the model depends on \YY, and does not produce constant (but valid) output, e.g. by always outputting $p(99)=1$. Cutoff sharpness ranges from -1 to 1; larger values indicate a sharper cutoff.
+ 
+    We perform this evaluation with our same 10,000-element dataset; on this dataset, GPT-2 achieves 81.7\% probability difference (SD: 19.3\%) and a cutoff sharpness of 6.0\% (SD: 7.2\%). Overall, both qualitative and quantitative results indicate that GPT-2 performs the greater-than operation on the year-span prediction task. For more study of GPT-2's behavior on this task, see \Cref{app:behavioral}.
+
+
+    \section{A Circuit for Year-Span Prediction}\label{sec:circuit}
+    % Original
+    Having defined our task, we now aim to understand how our model performs it internally. Since the advent of pre-trained models, many methods, such as attention analysis \citep{clark-etal-2019-bert} and probing \citep{belinkov-2022-probing}, have sought to answer this question. Probing, which trains auxiliary models (probes) to extract information from model representations, has been particularly popular; it has been used to localize syntactic and semantic processing in many pre-trained LMs \citep{peters-etal-2018-deep,tenney-etal-2019-bert,fayyaz-etal-2021-models}. However, it has significant pitfalls: most crucially, probes can sometimes extract information from model representations that is irrelevant to model behavior \citep{elazar-etal-2021-amnesic,ravichander-etal-2021-probing,hanna-etal-2023-functional}. To avoid this issue, other work has used causal interventions \citep{pearl2009} to intervene on model internals, and observe changes in model behavior \citep{giulianelli-etal-2018-hood,vig2020causal,geiger2021causal}. This ensures that our insights about model internals are actually functionally relevant to model behavior.
+
+    In light of this, we examine GPT-2's task performance by using causal techniques to identify a \textbf{circuit}: a minimal computational subgraph of our model that suffices to compute the task \citep{olah2020zoom, elhage2021mathematical}. While many causal methods aim to identify important components (nodes) of models \citep{vig2020causal,de-cao-etal-2020-decisions,geiger2021causal}, the circuits methodology instead considers important \emph{edges}. Circuits thus examine not only important nodes, but also their interactions, and how they work together to support model behavior.
+    
+    Below, we explain the \textit{path patching} technique, and how to use it to find circuits (\Cref{sec:path-patching}). We then find a circuit for greater-than, and prove its correctness (\Cref{sec:circuit-finding}). Finally, we assign semantics to the nodes and edges of our circuit (\Cref{sec:circuit-semantics}). All of our experiments use the \href{https://github.com/redwoodresearch/rust_circuit_public}{\texttt{rust-circuit}} library, and our code is available at \url{https://github.com/hannamw/gpt2-greater-than}. For information on how to apply this methodology to other problems, see \Cref{app:circuits-other-problems}.
+
+    \subsection{Path Patching}\label{sec:path-patching}
+    To find a circuit, we use path patching, introduced by \citet{wang2023interpretability} and further described by \citet{goldowskydill2023localizing}. This technique determines how important a model component (e.g. an attention head or MLP) is to a task, by altering that component's inputs and observing model behavior post-alteration. It is much like causal mediation analysis or interchange interventions \citep{vig2020causal,geiger2021causal}; however, unlike these, it allows us to constrain our intervention's effects to a specific path. 
+ 
+    To illustrate this, consider a model's forward pass on its inputs as a directed acyclical graph. Its nodes are components such as attention heads or MLPs. The input of a node $v$ is the sum of the outputs of all nodes with a direct edge to $v$. GPT-2 can be thought of as such a graph flowing from its input tokens to its logits (and thereafter, its probabilities), as depicted in \Cref{fig:path-patching}.
+
+    \begin{figure}[b]
+		\centering
+		\includegraphics[width=\linewidth]{imgs/path_patching_diagram_linetypes.png}
+		\caption{\textbf{A}: The computational graph of GPT-2, run on our normal dataset. \textbf{B}: GPT-2, where the (MLP 10, logits) path is patched to receive \texttt{01}-input. \textbf{C}: GPT-2, where the (Attn 10, MLP 10, logits) path receives \texttt{01}-input. Nodes receiving normal input have blue output; nodes receiving \texttt{01}-input have red output; nodes receiving both have purple output. Note that in B and C, there is no longer an edge connecting MLP 10 and the logits.}\label{fig:path-patching}
+    \end{figure}
+
+    In path patching, we specify new input tokens, and a path of components through which they will reach the logits. For example, if we want to ascertain the effects of MLP 10 on the logits, we can patch the direct path (MLP 10, logits) with new input, which we call the \texttt{01}-input: ``The war lasted from the year 1701 to the year 17''. We thus alter MLP 10's direct effects on the logits without changing its output to the attention and MLP of layer 11 (\Cref{fig:path-patching}). If the model's behavior (as indicated by its logits) changes, we can be sure that this is because MLP 10 is important to that behavior; it is not due to downstream components. Earlier methods like interchange interventions lack this distinction\textemdash when they alter a component, they affect all components downstream from it.
+
+    The specificity of path patching allows us to test detailed hypotheses. For example, imagine that we know that MLP 10 affects the logits both directly and via its effects on MLP 11. We want to know how important layer 10's attention is to the circuit via MLP 10. We can test this by patching two paths at once: (Attn 10, MLP 10, logits) and (Attn 10, MLP 10, MLP 11, logits), as in \Cref{fig:path-patching}. This allows us to pinpoint the relationship between precisely these two components, Attn 10 and MLP 10. This technique underpins our circuits approach: we search for a path starting in the inputs and ending in the logits that explains how our model performs the greater-than task.
+
+    % Alternate datasets
+    To perform path patching, we need a new dataset that replaces a node's original inputs. To this end, we create the ``\texttt{01}-dataset'': we take each example in the original dataset and replace the last two digits \YY\  of the start year with ``01''. If a component normally boosts logits of years$>$\YY, patching it with the \texttt{01}-dataset will cause it to boost the logits of years $>01$, inducing a larger error in the model. 
+
+    \subsection{Circuit Components} \label{sec:circuit-finding}
+
+	% Path patching experiments (MLPs)
+	\paragraph{MLPs} We search for a circuit by identifying components that perform year-span prediction via their direct connection to the logits. We consider as potential components GPT-2's 144 attention heads (12 heads/layer$\times$12 layers), and 12 MLPs (1 per layer). We do so because the residual stream \citep{elhage2021mathematical} that serves as input to the logits is simply the sum of these components' direct contributions (along with the token embeddings; we ignore these as they contain no \YY\ information). If we consider each of these, we will not miss any components that contribute to this task. For details, see \Cref{app:circuit-finding}.
+ 
+    We iteratively path patch each component's direct contributions to the logits, replacing its inputs with the \texttt{01}-dataset. In our earlier notation, for a component of interest $C$, we patch the path ($C$, logits), as in \Cref{fig:path-patching} B, where $C$ = MLP 10. We patch only one component at a time, and only at the end of the sentence; at other positions, these components cannot affect the logits directly.
+ 
+	After we patch a component, we run the model and record the probability difference, comparing it to that of the unpatched model. If patching a component caused model performance to change significantly, that component contributed to the model's computation of year-span prediction.
+	
+	\begin{figure}
+		\centering
+            \includegraphics[scale=0.5]{imgs/logits-ipp.pdf}
+            \includegraphics[scale=0.35]{imgs/mlps-ipp.pdf}
+		\caption{Iterative path-patching (IPP) heatmaps. Y-axis: layer of the component. X-axis: attention head number, or MLP. (X,Y): Change in probability difference induced by patching the corresponding component. \textbf{Left}: Heatmap for the path ((X,Y), logits). \textbf{Right}: Heatmaps for MLPs 8-11.} \label{fig:gpt2-ipp-logits}
+	\end{figure}
+	
+	\Cref{fig:gpt2-ipp-logits} shows the results of this experiment; for computational reasons we run it using a smaller dataset (490 datapoints, 5 per year \YY). The heatmap indicates that MLPs 8-11 are the most important direct contributors to the logits, along with a9.h1: attention layer 9's head 1. However, the MLPs cannot act alone: to compute years$>$\YY, these MLPs at the end of the sentence must know the value of \YY. But unlike attention heads, MLPs cannot attend to earlier tokens such as the \YY\ token. Thus, we search for nodes that contribute to the circuit via these MLPs.
+ 
+	% Path patching experiments (attention heads)	
+	\paragraph{Attention Heads} We find components that contribute to the circuit via the MLPs using more path patching. We start by patching components through MLP 11, since it is the furthest downstream; for a component of interest $C$, we patch ($C$, MLP 11, logits). We find that MLP 11 relies mostly on the 3 MLPs upstream of it (\Cref{fig:gpt2-ipp-logits}), so we search for components that act via those MLPs. 
+ 
+    We next find components that contribute to the circuit through MLP 10. For a given $C$, we patch ($C$, MLP 10, logits) and ($C$, MLP 10, MLP 11, logits), as in \Cref{fig:path-patching} C. We do so because MLP 10 contributes directly to two nodes in our circuit, the logits and MLP 11, and we want to know which nodes contribute via MLP 10 to the entire circuit. We repeat this procedure for MLPs 9 and 8.
+	
+	The results in \Cref{fig:gpt2-ipp-logits} indicate that MLPs rely heavily on other MLPs upstream of them. MLPs 8 and 9, the furthest upstream of our MLPs, also rely on attention heads. MLP 9 relies on a9.h1, while MLP 8 relies on a8.h11, a8.h8, a7.h10, a6.h9, a5.h5, and a5.h1; we add these to our circuit. Many of these attention heads can be seen to contribute to the logits directly, though more weakly than the MLPs do. For this reason, we also add these heads' direct connections to the logits to our circuit.
+
+     \begin{figure}[t]
+		\centering
+		\includegraphics[width=0.66\linewidth]{imgs/evaluation_diagram.png}
+            \includegraphics[width=0.33\linewidth]{imgs/patched-probability-heatmap.pdf}
+		\caption{\textbf{Left}: Diagram of the year-span prediction circuit. \textbf{Center}: Diagram showing which GPT-2 components receive our standard dataset vs. our \texttt{01}-dataset in the circuit evaluation experiment. \textbf{Right}: The probability heatmap (as in \Cref{fig:gpt2-behavioral}) for the patched model.} \label{fig:gpt2-evaluation}
+    \end{figure}
+ 
+    \Cref{fig:gpt2-evaluation} visualizes the circuit we have found. We could further develop this by specifying a circuit from the token inputs to the logits; indeed, we do so in \Cref{app:full-circuit}. However, the present circuit already captures the most interesting portion of the model: the MLPs that compute greater-than. So, we instead provide evidence that our circuit is correct, and then analyze its constituent parts.
+ 
+	% Quantitative performance of circuit
+    \paragraph{Evaluation} Having defined our circuit, we perform another path-patching experiment to ensure it is correct. In this experiment, we give most of the model inputs from the \texttt{01}-dataset. The model only receives our standard dataset via the paths specified in our circuit. So, our attention heads' contributions to the logits are backed by the standard dataset, as are their contributions to the MLPs, and the MLPs' contributions to one another. But, some components of the MLPs' inputs (those that come from model components not in the circuit) receive input from the \texttt{01}-dataset as well. We stress that this is a difficult task, where the large majority of the model receives input that should push it to poor performance. For a diagram of the circuit and our evaluation, see \Cref{fig:gpt2-evaluation}. 
+	
+    We perform this evaluation using the larger dataset, and almost entirely recover model performance. The probability difference is 72.7\% (89.5\% of the original) and the cutoff sharpness is 8\%\textemdash sharper than pre-patching. %(138\%) % the logit mean difference is 84.2\% of the original.,
+    This indicates that our circuit is mostly sufficient to compute this task. The circuit is also necessary: performing the opposite of the prior experiment, giving nodes in our circuit the \texttt{01}-dataset, and those outside it the normal dataset, leaves GPT-2 unable to perform the task: it achieves a probability difference of -36.6\%. 
+    
+    If we target other circuits of a size and location similar to our circuit's, performance is related to the preservation of the paths from the input, to our attention heads, our MLPs (especially MLPs 9 and 10), to the logits. If the paths are interrupted (i.e. no attention head or no MLP overlap with the original circuit), performance is very low. If at least one path is preserved, performance improves with each additional component in common with the original circuit; MLPs have the biggest impact.
+	
+    \subsection{Circuit Semantics}\label{sec:circuit-semantics}
+    Now, we interpret each circuit component, starting with the attention heads. We first perform a simple attention-pattern analysis of the heads in our circuit. \Cref{fig:gpt2-attention-patterns} shows which tokens our attention heads attend to at which positions. At the relevant (end) position, in-circuit attention heads attend to the \YY\ position, suggesting that they detect the year which the output year must be greater than.
+    \begin{figure}[b]
+		\centering
+            \includegraphics[width=0.67\linewidth]{imgs/attn-patterns-bos.pdf}
+        \caption{Attention patterns of a7.h11 and a8.h10. \texttt{<bos>} denotes GPT-2's start of sentence token.%, \texttt{<|endoftext|>}.
+        } \label{fig:gpt2-attention-patterns}
+    \end{figure}
+ 
+	\begin{figure}[t]
+		\centering
+            \includegraphics[width=0.75\linewidth]{imgs/attn-logitlens.pdf}
+		\caption{Logit lens of a7.h11 and a8.h10. Axes as in \Cref{fig:gpt2-behavioral}; blue indicates that the module upweights the output year, and red, that it downweights the year.} \label{fig:gpt2-attention-semantics}
+	\end{figure}
+
+        \begin{figure}[b]
+		\centering
+            \includegraphics[width=\linewidth]{imgs/mlps-logitlens.pdf}
+		\caption{(Left to right) Logit lens of MLPs 11, 10, 9, and 8; labels as in \Cref{fig:gpt2-attention-semantics} \label{fig:gpt2-mlps-semantics}}
+	\end{figure}
+
+        % MH: In this section, and the latter where logit lens is used, it could be nice to use a direct effects analysis instead, analyzing a component by comparing baseline vs. patched logits. I've stuck with logit lens here since the results are the same, and I think there's value in engaging with existing literature. I'm particularly worried that this paper will be difficult for non-mech-interp folks - introducing more new methods will probably exacerbate that.
+        % Maybe cite dar2022analyzing somewhere?
+	Next, we examine the contributions of attention heads using the logit lens approach \citep{nostalgebrist2020logit}: we multiply each head's output by GPT-2's unembedding matrix, translating this output into unembedding (vocabulary) space. Note that here, we do not only view logit lens as a tool for obtaining intermediate estimates of model predictions \citep{belrose2023eliciting}. Rather, we also use it to understand components' outputs more generally: the logit lens can capture how such outputs shape model predictions, but it can also capture how these outputs add information to the residual stream in unembedding space. 
+ 
+    We visualize the heads' outputs for each sentence in our small dataset in \Cref{fig:gpt2-attention-semantics}. Attention head outputs for a sentence with start year \YY\ have a high dot product with the embedding vector for \YY, as shown by the blue diagonal in the plots; this indicates that the head upweights \YY, making it a more likely output. Note that \YY\ was not just upweighted highly compared other 2-digit years; \YY\ was the most highly upweighted token across all tokens. Given our earlier analysis, we therefore hypothesize that these attention heads identify the start year (at the \YY\ position), and indicate it via a spike in unembedding space of the residual stream at the end position; they thus communicate \YY\ to downstream components.
+	
+    % MLPs (logit lens) (establish the role of m9-m11)
+    We similarly apply the logit lens to the outputs of MLPs 8-11 (\Cref{fig:gpt2-mlps-semantics}). The results indicate that MLPs of 9 and 10 directly specify which years are greater than \YY: the logit lens of each layer's output has an upper triangular pattern, indicating that they upweight precisely those years greater than \YY. MLP 11 plays a similar role, but seems to upweight roughly the first 50 years after \YY, enforcing a maximum duration for the event in the sentence. However, MLP 8 is unusual: its logit lens shows a diagonal pattern, but no upper triangular pattern that would indicate that it computes greater-than.
+
+    We claim that this is because MLP 8 contributes mainly indirectly, via the other MLPs in our circuit. We confirm this by patching MLP 8's direct contributions to the logits with the \texttt{01}-dataset; we do so again with its indirect contributions, through the other MLPs. In the former case, model performance drops only 14\%, while in the latter case, it drops by 39\%. So MLP 8 does not contribute much to the logits directly, but it does contribute indirectly. Other MLPs also have mixed effects: MLP 9 has roughly equal direct and indirect contributions (28\% vs. 32\%), while MLP 10 contributes mostly directly (56\% vs. 16\%). MLP 11 can only contribute directly.
+
+	Our full picture of the circuit so far is this: the attention heads communicate the start year \YY\ in embedding space. MLP 8's mostly influences downstream MLPs. However, MLPs 9, 10, and 11 appear to compute the greater-than operation in tandem, and in steps. We conclude that while the attention heads identify the important year \YY, it is the MLPs that effect the greater-than computation. 
+
+    \section{Explaining Greater-Than in the Year-Span Prediction Circuit}\label{sec:in-depth-investigations}
+    Our prior experiments show that MLPs 9-11 directly compute greater-than. But how do they do so? We cannot provide a conclusive answer, but identify avenues by which MLPs might compute this. We first examine their inputs, finding structure that might enable greater-than computation. Then, we examine MLP internals, showing how neuron composition could enable greater-than computation. 
+    
+    \subsection{Input Structure}
+    \begin{figure}
+		\centering
+		\includegraphics[width=\linewidth]{imgs/pca-analysis.pdf}
+		\caption{PCA of MLP 8's input, a7.h10's and a7.h8's output, and the static year embeddings. Each point corresponds to one datapoint's representation, and is labeled with and colored by the its \YY.} \label{fig:pca}
+    \end{figure}
+    To understand how MLPs compute greater-than, we analyze various model representations using 2D Principal Component Analysis (PCA). For each of the 97 datapoints in our small dataset, each with a unique start year, we analyze the input residual stream to our MLPs, as well as the output of relevant attention heads. As a control, we also analyze representations from irrelevant model components, and the static year embeddings. We take all component representations from the end position. 
+    
+    In \Cref{fig:pca}, PCA reveals that the input residual stream to MLP 8 (and indeed all of our MLPs, though not all are shown) is highly structured: representations are ordered by the start year of the sentence they are from, increasing clockwise. The same is true of the outputs of relevant attention heads (a7.h10), which serve as inputs to the MLPs, but not of outputs of irrelevant heads (a7.h8). This suggests that it is specifically the relevant attention heads that transmit this structured information to relevant MLPs. But while the heads seem to transmit this structured information to the MLPs, they need not have created this structure from scratch. We find, as in \citet{wallace-etal-2019-nlp}, that structure already exists in the static year embeddings, though the years 02-09 are clustered apart from the rest. The heads need only unify these groups and move this information from the \YY\ position to the end.
+
+    Structured number representations have been implicated in mathematical capability before: \citet{liu2022towards} train a toy transformer model on modular addition, and find that its number representations become structured only after it stops overfitting and begins to generalize. This suggests that GPT-2's structured number representations may be relevant to its greater-than ability. However, our experiments struggle to prove this causally. When we ablate the dimensions found through PCA, to test their importance to the greater-than task, we found little change in model performance.
+    Similarly, removing linearly-extractable \YY\ information from attention head output using LEACE \citep{belrose2023leace} yielded only slightly lower probability difference (64.7\%) than the baseline (81.7\%). This indicates that structured \YY\ information may not fully explain GPT-2's greater-than abilities.
+    
+    \subsection{Neuron-Level Processing}
+    \begin{figure}
+		\centering
+		\includegraphics[width=0.67\linewidth]{imgs/top3-neurons.pdf}
+            \includegraphics[width=0.29\linewidth]{imgs/top10-neurons-logitlenssum.pdf}
+		\caption{\textbf{Left}: The logit lens of the 3 MLP 10 neurons most important to year-span prediction. \textbf{Right}: The logit lens of the top-10 MLP 10 neurons. Blue indicates that the neuron upweights logits at the given input year (y-axis), output year (x-axis) combination, while red indicates downweighting.} \label{fig:neuron-card}
+    \end{figure}
+    
+    To better understand MLPs, we turn to their internals, zooming in on their neurons. We choose to study MLP 10 closely, as we know it directly contributes to the greater-than operation. We start by asking which of MLP 10's neurons are important---a sort of question already studied using probing \citep{Dalvi_Durrani_Sajjad_Belinkov_Bau_Glass_2019,durrani-etal-2020-analyzing}, causal ablations \citep{bau2018identifying,lakretz-etal-2019-emergence,vig2020causal}, and other techniques; see \citet{sajjad-etal-2022-neuron} for an overview.
+    
+    As before, we use path patching because it provides precise causal insights. We path patch each of MLP 10's 3072 neurons' direct contributions to the logits with the \texttt{01}-dataset. We again record the change in model performance, as measured by probability difference, compared to the unpatched model. We find that neuron contributions to the task are sparse: most neurons can be patched (ablated) with near zero effect on our model performance, as observed in prior work \citep{vig2020causal}. 
+
+    We then analyze those neurons that contribute most to model performance using the logit lens. To do this, we take advantage of the fact that each neuron has a corresponding row in the MLP output weight matrix. As noted by \citet{geva-etal-2021-transformer}, multiplying this row by the unembedding weights yields an (unnormalized) distribution over the logits, indicating which outputs the neuron upweights when activated. Taking the outer product of this logit distribution with the neuron's activations yields the logit lens, indicating which output years the neuron upweights for each input sentence's \YY.
+
+    \Cref{fig:neuron-card} shows the logit lens of the 3 most important neurons in MLP 10; more neurons can be found in \Cref{app:mlp10-neurons}. Each neuron up- or down-weights certain output years depending on the input year \YY, but no individual neuron computes greater-than. No one neuron can do so, as each neuron's activation for each input only scales that neuron's distribution over the logits, without changing its overall shape. In contrast, the correct shape of the logits differs depending on the example's start year. 
+
+    Many neurons can compute greater-than when combined, though. We perform logit lens on the sum of the top-10 neurons' contributions \footnote{We can confirm this using path patching as well; see \Cref{app:neuron-patching} for details.} in \Cref{fig:neuron-card}. Though they do not do so individually, the top-10 neurons perform an imperfect greater-than when summed together as a group. The logit lens of MLP 10 as a whole can be thought of as the logit lens of the sum all 3072 neurons' contributions; we partially recreate this with the contributions of just the top-10 neurons. Including more top neurons produces sharper approximations of greater-than; see \Cref{app:mlp10-neurons} for examples.
+
+    In summary, we find that even inside one MLP, the greater-than operation is spread across multiple neurons, whose outputs compose in a sum to form the correct answer. Even the contributions of a small number of relevant neurons composed begin to roughly form the correct operation. We study this in MLP 10, but observe it in the other MLPs as well. \Cref{sec:circuit-semantics} suggested that GPT-2 computed greater-than across multiple important MLPs; these results suggest that moreover multiple important neurons in each MLP compose to allow the MLP to compute greater-than.
+
+        
+    \section{Does The Circuit Generalize?}\label{sec:generalization}
+    We now possess a detailed circuit for year-span prediction. But one thing remains unclear: is this a general circuit for the greater-than operation? Or does it only only apply to this specific, toy task? Answering this question fully would require  an in-depth exploration of circuit similarity that fall outside the scope of this paper. For the purposes of this investigation, we perform primarily qualitative analyses of tasks that preserve the format and output space of year-span prediction. 
+
+    To start, we focus on three increasingly different prompts: ``The \texttt{<noun>} started in the year 17\YY\ and ended in the year 17'', ``The price of that \texttt{<luxury good>} ranges from \$ 17\YY\ to \$ 17'', and ``1599, 1607, 1633, 1679, 17\YY, 17''. In all cases, a two-digit number greater than \YY\ would be a reasonable next token. The model performs greater-than given all of these prompts ($\geq 69\%$ probability difference). Moreover, the circuits found via path patching are similar to those in \Cref{sec:circuit-finding,sec:circuit-semantics}. When we run GPT-2 on the first two tasks, ablating all edges not in our original year-span circuit, we achieve 98.8\% and 88.9\% loss recovery respectively; for more details, see \Cref{app:circuit-generalization}. As before, these tasks depend on MLPs 8-11 to compute greater-than; these MLPs depend on attention heads that transmit information about \YY. 
+    
+    That said, these tasks' circuits are not all identical to the greater-than circuit. GPT-2 recovers only 67.8\% of its original performance on the last when ablating everything but the year-span circuit. But, a closer look at path patching results indicated that on this task, GPT-2 used not only the entire year-span circuit, but also MLP 7 and two extra attention heads. After including those nodes, GPT-2 recovered 90.3\% of performance. Similar tasks seem to use similar, but not identical, circuits.
+
+    GPT-2 produced unusual output for some tasks requiring other mathematical operations. It produced roughly symmetric distributions around \YY\ on the task ``1799, 1753, 1733, 1701, 16\YY, 16'', which might yield predictions smaller than \YY. It behaved similarly on examples suggesting an exact answer, such as ``1695, 1697, 1699, 1701, 1703, 17'', which could yield 05. GPT-2 even failed at some tasks that were solvable using the greater-than circuit, like ``17\YY\ is smaller than 17''; it always predicted \YY. Across all such tasks, we found that GPT-2 relied on another set of heads and MLPs entirely. So GPT-2 does not use our circuit for all math; sometimes it does not rely on it even when it should.
+
+    We also observe the opposite phenomenon: inappropriate activation of the greater-than circuit, triggered by prompts like ``The \texttt{<noun>} ended in the year 17\YY\ and started in the year 17'' and ``The \texttt{<noun>} lasted from the year 7\YY\ BC to the year 7''. In these cases, GPT-2 ought to predict numbers smaller than \YY; however, it predicts numbers greater than \YY. This is because it is using the exact same circuit used in the greater than case! GPT-2 thus overgeneralizes the use of our circuit.
+    
+    Our results suggest that our circuit generalizes to some new scenarios. But what does a generalizing circuit imply about the origins of GPT-2's greater-than capabilities\textemdash do they stem from memorization \citep{tirumala2022memorization, carlini2023quantifying}, or rich, generalizable representations of numbers \citep{liu2022towards}? Our complex circuit and the structured numbered representations found in our PCA experiments hint at some mathematical knowledge in GPT-2. However, the presence of a greater-than circuit does not preclude memorization. Our circuit could function internally as a lookup table, where attention heads transmit \YY\ information to MLPs that then upweight the years that they have memorized to be $>$\YY. In this case, (incorrect) generalization would involve GPT-2 (incorrectly) activating the lookup circuit based on context.
+
+
+    Though our current evidence does not allow us to definitively attribute GPT-2's behavior to generalized mathematical ability or memorization, it suggests that the underlying mechanism is something in between the two. The lack of causal evidence for the role of structured number representations, and the fact that GPT-2 cannot handle related operations like ``less-than'' or ``equal-to'' argue against generalized math mechanisms. However, even if we view this circuit as simply retrieving memorized facts, the retrieval mechanism at work is sophisticated. GPT-2 can (imperfectly) identify greater-than scenarios and the relevant operand; it then activates a dedicated mechanism that retrieves the correct answer. GPT-2's mathematical abilities thus extend beyond a simple, exact memorization of answers.
+
+
+    \section{Conclusion}
+    In this paper, we attempted to bridge the gap between our understanding of mathematical abilities in toy models, and the mystery of such abilities in larger pre-trained LMs. To do so, we outlined a circuit in GPT-2 with interpretable structure and semantics, adding to the evidence that circuits are a useful way of understanding pre-trained LMs, \citep{wang2023interpretability} even in a more complex scenario. Our circuit is coarser-grained than findings in toy models for mathematical tasks \citep{nanda2023progress}, but much finer-grained than existing work on mathematics in pre-trained LMs. Moreover, we showed that this circuit in GPT-2 activates across contexts on other greater-than-adjacent tasks. Whether such cross-context activation reflects generalization or memorization is an open question for circuits work in general.
+    
+    We note that our conclusions are limited by the small size of our model and dataset, and the simple phenomenon studied. Our study is very model-centric: data-driven interpretability techniques would strengthen our work. Studying circuit performance across diverse tasks could better measure the degree to which our circuit generalizes to all greater-than tasks. Similarly, studying larger models would confirm that our results hold for the models that dominate natural language processing today.
+
+    Despite these limitations, we believe that this study lays the groundwork for future work. Our small study hints at the potential for circuits as a lens for the study of memorization and generalization in pre-trained LMs. More broadly, we hope that our finding that not only attention heads, but also MLPs and their neurons can be analyzed jointly as a complex system will motivate circuits work to come.
+
+
+    \section*{Author Contributions}
+    \textbf{MH} and \textbf{OL} performed the initial experiments that formed the basis of this project. \textbf{MH} developed and performed the final set of experiments shown here, and drafted the paper. \textbf{AV} supervised the empirical work and writing process.
+
+
+    \begin{ack}
+        The authors thank Buck Shlegeris, Chris MacLeod, and Arthur Conmy for their valuable feedback on earlier drafts of this work. They also thank Neel Nanda for a useful research meeting about this work. They additionally thank Dani Yogatama, as well as members of the Amsterdam and Technion NLP groups, for their helpful comments. They also appreciate the insightful reviews and discussion provided by the anonymous reviewers for this paper. They finally thank Redwood Research for both running the REMIX program, which provided many of the ideas, techniques, and collaborations behind this paper, and providing continued computational and travel support thereafter.
+    \end{ack}
+    
+    \bibliographystyle{plainnat}
+    \bibliography{gpt2-years,anthology}
+	
+    \newpage
+    \appendix    
+    \section{More Behavioral Study of Greater-Than in GPT-2}\label{app:behavioral}
+    In this section, we discuss the results of additional behavioral studies of GPT-2's behavior.
+
+    \paragraph{GPT-2 also predicts valid \XX} Although our previous experiments show that GPT-2 predicts a valid two-digit end year \YY, we also verify that GPT-2 predicts a valid continuation when the output prefix \XX\ is not provided. In this scenario, GPT-2 should either predict either a two-digit century token whose value is $\geq\XX$, or an entire 4-digit year token that is $\geq\XX\YY$. We test this using the same dataset as in previous experiments, with the final $\XX$ removed. We find that on average, considering the top-100 tokens (95\% of probability mass), 94\% of their probability mass (89\% of the total) is assigned to valid continuations. So, GPT-2 generally predicts valid \XX.
+
+    \paragraph{GPT-2's top predictions are valid} As suggested by the high probability difference achieved by GPT-2, its top \YY\ predictions for an input from our dataset are quite good. 100\% of the top-1 continuations, and 98.6\% of top-5 continuations were correct.
+
+    \paragraph{Default Behavior in GPT-2} GPT-2 predicts the greater-than in greater-than scenarios, but also in scenarios where less-than would be appropriate (see \Cref{sec:generalization}). For this reason, we also tested how GPT-2 behaves in a scenario where neither greater-than nor less-than in required, in order to a elicit a sort of default behavior. 
+    
+    To test this, we created sequences of 4-digit numbers like ``\XX\texttt{Y1}, \XX\texttt{Y2},..., \XX\texttt{YN}, \XX''. We chose \XX, \texttt{Y1},\ldots,\texttt{YN} randomly for each sequence, respecting tokenization. Sequences were generally not monotone, so any 2-digit continuation \YY\ could have been valid. We found that GPT-2’s behavior depends on the sequence length $N$. At low $N$, GPT-2 produces mostly numbers $>$ \texttt{YN}; the proportion of continuations $<$ \texttt{YN} increases smoothly until ~50\% by $N=20$. So even in the context of random sequences, GPT-2 often generates increasing numbers. 
+    
+    Beyond simple behavioral study, we conducted a circuits analysis on this task, and found that our greater-than circuit also underlies this behavior. This provides another example of GPT-2's ability to identify greater-than situations is flawed. However, it also demonstrates again that whenever we see this greater-than behavior, our circuit is responsible. An open question worth answering is why our circuit activates in such incorrect scenarios, and if this can be mitigated.
+    
+    \section{The Full Year-Span Prediction Circuit}\label{app:full-circuit}
+    Now, we describe the rest of the year-span prediction circuit. This is actually not very large, as we already know most of the important components. All that remains is to understand how the input to the attention heads is crafted.
+
+    We can investigate this via iterative path-patching again: we will look for nodes that influence the attention heads. This can be done in three ways: via queries, keys, and values. The queries and keys jointly determine what the attention heads attend to. In theory, attention patterns should be relatively constant across examples: in all cases, attention heads should attend to the \YY\ position. If this is the case, we should be able to ignore the queries and keys, and focus only the value.
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.5\linewidth]{imgs/app/attn_proportion.pdf}
+        \caption{Attention from a7.h10 (end position) to the \YY\ position, by input year \YY} \label{fig:attn-proportion}
+    \end{figure}
+    In practice, attention patterns are not exactly constant as \YY\ changes. While broad trends are similar, the intensity of the attention to the \YY\ position varies (though not linearly with \YY, as might make sense: see \Cref{fig:attn-proportion}). At \YY=01, attention to the \YY\ position is rather low, meaning that model greater-than behavior is less pronounced when patched. Thus, the queries and keys are somewhat important: patching them with bad data reduces performance by 15\% with respect to our partial circuit. The influences on these heads via the keys are similar to those on the values, discussed in the next paragraph. The influences via the queries are distinct, but we will set these aside, and focus on the value vectors.
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.5\linewidth]{imgs/app/attn_v.pdf}
+        \caption{Iterative path patching results through attention heads' value vectors} \label{fig:ipp-attn-value}
+    \end{figure}
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=\linewidth]{imgs/app/low-mlps-ipp.pdf}
+        \caption{Iterative path patching results for MLPs 0-3} \label{fig:ipp-low-mlps}
+    \end{figure}
+
+    The most important influences on these heads are the influences on their values at the \YY\ position. The values are combined to form each attention head's output: patching the values with \texttt{01}-input entirely disrupts circuit performance, unlike patching its keys or queries. 
+
+    To find influences on these values, we iteratively path patch potential components that might communicate with our attention heads via their values at the \YY\ position. We find (\Cref{fig:ipp-attn-value}) that these are mostly MLPs 0-3, as well as a0.h5, a0.h3, and a0.h1. We delve again into this group of MLPs (\Cref{fig:ipp-low-mlps}), and see that each MLP relies on the MLPs before it and a0.h1; MLP 2 is the exception, as it does not rely on MLP 1. We know that a0.h5 can only rely on the token embeddings; there is nothing else before it in the residual stream! We attempt to find what MLP 0 depends on, but it does not rely on any of the attention heads prior to it; this indicates that it depends primarily on the token embeddings, not shown in these iterative path patching diagrams. 
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.5\linewidth]{imgs/app/full_circuit_diagram.png}
+        \includegraphics[width=0.49\linewidth]{imgs/app/full-patched-probability-heatmap.pdf}
+        \caption{\textbf{Left}: Full circuit diagram. Note that all components in the boxes containing MLPs are interconnected; the components in boxes containing only attention heads are not. The components in the gray boxes in gray jointly contribute to the keys and values of the components in the teal box. \textbf{Right}: Probability heatmap for the patched full circuit.} \label{fig:full-circuit-diagram}
+    \end{figure}
+    
+    We have now developed a hypothesis regarding a full circuit, pictured in \Cref{fig:full-circuit-diagram}. We evaluate it as before, keeping in mind that the keys and values of the attention heads are patched with the same input components as found earlier; the queries, not the focus of this section, receive all good inputs. The circuit achieves a probability difference of 71.5\% (98.3\% of what we achieved earlier), and a cutoff sharpness of 10.5\% (again sharper than pre-patching). The qualitative results are in \Cref{fig:full-circuit-diagram}.
+
+    \section{Circuit Finding, Step by Step}\label{app:circuit-finding}
+    \begin{figure}
+        \centering
+        \includegraphics[scale=0.55]{imgs/logits-ipp.pdf}
+        \includegraphics[scale=0.7]{imgs/app/logits_diagram.png}
+        \caption{Path Patching Step 1: Logits} \label{fig:app-logits}
+    \end{figure}
+
+    \begin{figure}
+        \centering
+        \includegraphics[scale=0.55]{imgs/app/m11-ipp.pdf}
+        \includegraphics[scale=0.7]{imgs/app/m11_diagram.png}
+        \caption{Path Patching Step 2: MLP 11} \label{fig:app-m11}
+    \end{figure}
+    
+    In this section, we explain the circuit finding procedure step by step, with additional diagrams to aid comprehension. We start, as indicated previously, by patching direct connections to the logits (\Cref{fig:app-logits}). This reveals connections to the logits from MLPs 8-11, as well as a9.h1. We continue with the next furthest downstream MLP, MLP 11, and see which nodes influence the circuit via it. Note that the only path through which a node $C$ can influence the circuit via MLP 11 is ($C$, MLP 11, logits), in red (\Cref{fig:app-m11}, right). The results (\Cref{fig:app-m11}, left) indicate that the other MLPs influence the circuit most through MLP 11.
+
+    \begin{figure}
+        \centering
+        \includegraphics[scale=0.55]{imgs/app/m10-ipp.pdf}
+        \includegraphics[scale=0.7]{imgs/app/m10_diagram.png}
+        \caption{Path Patching Step 3: MLP 10} \label{fig:app-m10}
+    \end{figure}
+
+    \begin{figure}
+        \centering
+        \includegraphics[scale=0.55]{imgs/app/m9-ipp.pdf}
+        \includegraphics[scale=0.7]{imgs/app/m9_diagram.png}
+        \caption{Path Patching Step 4: MLP 9} \label{fig:app-m9}
+    \end{figure}
+
+    We continue onward to MLP 10, and see which nodes are most influential on the circuit via it. We consider all the ways in which nodes could contribute via MLP 10 to the circuit, shown in red on the right of \Cref{fig:app-m10}. The results (\Cref{fig:app-m10}) again that MLP 10 relies mostly on MLPs 8 and 9. We proceed similarly with MLP 9, considering all the ways in which it influences the circuit; the results in \Cref{fig:app-m9} indicate that it relies mostly on MLP 8 and a9.h1.
+
+    \begin{figure}
+        \centering
+        \includegraphics[scale=0.55]{imgs/app/m8-ipp.pdf}
+        \includegraphics[scale=0.6]{imgs/app/m8_diagram.png}
+        \caption{Path Patching Step 5: MLP 8} \label{fig:app-m8}
+    \end{figure}
+
+    At this juncture, it might be appropriate to ask which nodes in the graph most influence the circuit via a9.h1. However, we skip this node because, as we explain in the circuit semantics section (\Cref{sec:circuit-semantics}), the attention heads are acting together separately from the MLPs, performing different roles. Moreover, when analyzing attention heads, we must consider what influences their queries, keys, and values separately, a complicated task best avoided in the MLP-centric analysis. In \Cref{app:full-circuit}, we explore in greater detail the nodes that contribute to such attention heads.
+
+    Instead, we complete our circuit-finding section by finding nodes that contribute to the circuit via MLP 8. This reveals (\Cref{fig:app-m8}) the heads that identify \YY, completing our initial circuit investigations.
+
+    \section{MLP 10 Neuron Contributions}\label{app:mlp10-neurons}
+    \begin{figure}[t]
+            \centering
+            \includegraphics[width=\linewidth]{imgs/app/neurons.pdf}
+            \caption{Neuron contributions for each MLP 10 neuron in the top 4-11. Neurons ordered by importance, left-to-right, top-to-bottom. Blue indicates that the neuron upweights a certain predicted year, given a starting year \YY, while red indicates downweighting.} \label{fig:m10-plots}
+    \end{figure}
+    
+    In this section, we display the contributions of the top 10 most important neurons of MLP 10, found in \Cref{fig:m10-plots}. Many neurons' contributions are relatively constant across \YY; e.g. the 4th most important neuron always upweights later years. Others differ across \YY\ but not predicted year; the 10th most important neuron downweights all years for the last 10 years or so, where correct answers are very few generally. The 3rd most important neuron varies in both dimensions, having 0 contribution for years \YY\ from around 10 to 50, but a distinct pattern for all other \YY. Only the first few neurons are very intense in color, as we have fixed the range of the color scale: these neurons are the most important because they cause the greatest changes when they are patched. 
+
+    \begin{figure}[t]
+            \centering
+            \includegraphics[width=.66\linewidth]{imgs/app/top100-neurons.pdf}
+            \caption{Neuron contributions of the top-100 (left) and 200 (right) neurons in MLP 10. Blue indicates that the neuron upweights a certain predicted year, given a starting year \YY, while red indicates downweighting.} \label{fig:m10-100-plots}
+    \end{figure}
+
+    Combining these contributions rapidly produces patterns resembling those of the MLP as a whole. We see this weakly by viewing the top-10 neurons' contributions, but more strongly in the top-100 or 200 (of 3072) neurons (\Cref{fig:m10-100-plots}). In these logit lens diagrams, there is a consistent increase in logit lens magnitude between \YY\ and \YY+1, for a given start year \YY.
+    
+    \section{Logit Lens vs. Direct Effects via Path Patching}\label{app:neuron-patching}
+    We use the logit lens throughout this paper for consistency, both internally and with prior work. However, the logit lens has flaws: in reality, the residual stream is normalized using layer normalization prior to being transformed into the logits. This nonlinearity could in theory cause the scaling of logit lens to be misleading, perhaps in such a way that affects our conclusions. In this section, we will show that the logit lens results can be recreated with another technique, direct effects via path patching, that avoids this flaw. The two techniques fortunately yield the same insights.
+
+    Using the logit lens, we would normally multiply our component of interest's output by the unembedding matrix. To measure direct effects, we take the unpatched, original model's year logits, over each \YY, as a baseline. We then patch the direct path between our component and the logits with the \texttt{01}-dataset, and again record the logits. The difference between the unpatched logits, and the logits when we patch (ablate) our component of interest, reveals the direct effect that said component had. This approach eliminates one major concern of the logit lens: it yields the difference of two sets of logits, which were both produced with layer normalization, and which has interpretable units.
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=\linewidth]{imgs/app/top3-neurons-directeffects.pdf}
+        \caption{Direct effects of top-3 MLP 10 Neurons} \label{fig:top3-directeffects}
+    \end{figure}
+
+    We can perform our neuron-level logit lens experiments by instead patching the direct paths to the top-3 neurons of MLP 10 (\Cref{fig:top3-directeffects}). The results are essentially identical to the logit lens results, though they differ in magnitude. We can also sum these direct effects, as we summed the logit lens outputs; again, results differ from those of the logit lens only in magnitude (\Cref{fig:top10-directeffects}). Finally, we can also patch all top-10 neurons as a group, and view their direct effects; these results are identical to those of the summed direct effects (\Cref{fig:top10-directeffects}). This suggests that our summed logit lens approach genuinely reflected the direct effects that these neurons have on the logits.
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.6\linewidth]{imgs/app/top10-neurons-directeffects.pdf}
+        \caption{Summed and patched direct effects of top-10 MLP 10 Neurons} \label{fig:top10-directeffects}
+    \end{figure}
+
+    We conclude that the results given by the logit lens and those given by direct effects are largely similar, so concerns about the logit lens are not dire. However, we note that all of our logit lens results (including those for entire MLPs and attention heads) are reproducible using direct effects.
+
+    
+    \section{Year-Span Circuit Generalization}\label{app:circuit-generalization}
+	In this section we provide evidence for the generalization of the year-span circuit to some (but not all) tasks. For tasks where the model failed entirely, we provide the probability heatmaps (to show its failure). For tasks where the model succeeded, or incorrectly generalized the greater-than circuit, we additionally provide path patching results and logit lens heatmaps to show how circuit structure and semantics are preserved.
+
+    \paragraph{Tasks Failed}
+        \begin{figure}
+            \centering
+            \includegraphics[width=\linewidth]{imgs/app/failure-probs.pdf}
+            \caption{Probability heatmaps for (left to right) ``1799, 1753, 1733, 1701, 16\YY, 16'', ``1695, 1697, 1699, 1701, 1703, 17'', and ``17\YY\ is smaller than 17''.} \label{fig:failure-prob-plots}
+        \end{figure}
+
+    \Cref{fig:failure-prob-plots} displays probability heatmaps for ``1799, 1753, 1733, 1701, 16\YY, 16'', ``1695, 1697, 1699, 1701, 1703, 17'', and ``17\YY\ is smaller than 17''. In the first case, GPT-2 predicts a roughly uniform distribution around \YY. In the second case, the right answer varies: though the penultimate number in the provided sequence is \YY=``03'', and the sequence increases by 2 step, depending on \YY, we must vary the increase per step, in order to avoid the single-token number ``1700''. In any case, the model fails to predict the correct answer, often predicting \YY$+1$, although the step is always $>1$. In the final case, the model always outputs \YY.
+
+    \paragraph{Tasks Completed Correctly} 
+        \begin{figure}
+            \centering
+            \includegraphics[width=\linewidth]{imgs/app/success-probs.pdf}
+            \caption{Probability heatmaps for (left to right) ``The \texttt{<noun>} started in the year 17\YY\ and ended in the year 17'', ``The \texttt{<noun>} happened in 17\YY. Some years later, it is now the year 17'', and ``1599, 1607, 1633, 1679, 17\YY, 17''.} \label{fig:success-prob-plots}
+        \end{figure}
+    \Cref{fig:success-prob-plots} displays probability heatmaps for ``The \texttt{<noun>} started in the year 17\YY\ and ended in the year 17'', ``The price of that \texttt{<luxury good>} ranges from \$ 17\YY\ to \$ 17'', and ``1599, 1607, 1633, 1679, 17\YY, 17''. All tasks are completed successfully, just like year-span prediction, though note that the second task is completed less well, as is visible in its heatmap. Its probability difference is only 75\%, as opposed to 90\%.
+
+        \begin{figure}
+            \centering
+            \includegraphics[width=\linewidth]{imgs/app/success-ipps.pdf}
+            \caption{Iterative path patching plots ($C$, logits) for (left to right) ``The \texttt{<noun>} started in the year 17\YY\ and ended in the year 17'', ``The price of that \texttt{<luxury good>} ranges from \$ 17\YY\ to \$ 17'', and ``1599, 1607, 1633, 1679, 17\YY, 17''.} \label{fig:success-ipp}
+        \end{figure}
+    Given this, we proceed using iterative path patching direct logits connections as before; \Cref{fig:success-ipp} shows the results. All of these plots look almost identical to our original plots, so we evaluate the circuit on each of tasks using the methodology from \Cref{sec:circuit-finding}. This works for the first two tasks, with performance recoveries $>90\%$, but not the last. 
+
+        \begin{figure}
+            \centering
+            \includegraphics[width=\linewidth]{imgs/app/m7m8-ipps.pdf}
+            \caption{Iterative path patching plots for ``1599, 1607, 1633, 1679, 17\YY, 17'', searching for components that influence the circuit via MLPs 8 (left) and 7 (right).} \label{fig:m8m7-ipp}
+        \end{figure}
+    
+    For the last task, we observe that MLP 8 relies also on MLP 7, which in turn relies on two extra attention heads not observed in our original circuit: a7.h11 and a6.h1 (\Cref{fig:m8m7-ipp}). Accounting for this in our circuit leads us back to $>90\%$ loss recovery.
+
+    \paragraph{Tasks Completed Incorrectly}
+    Finally, we address the tasks ``The \texttt{<noun>} ended in the year 17\YY\ and started in the year 17'' and ``The \texttt{<noun>} lasted from the year 7\YY\ BC to the year 7'', which do use our circuit, but should not do so. 
+
+            \begin{figure}
+            \centering
+            \includegraphics[width=\linewidth]{imgs/app/bc-probs.pdf}
+            \caption{Probability heatmaps for ``The \texttt{<noun>} ended in the year 17\YY\ and started in the year 17'' (left) and ``The \texttt{<noun>} lasted from the year 7\YY\ BC to the year 7'' (right).} \label{fig:partial-success-prob-plots}
+        \end{figure}
+    \Cref{fig:partial-success-prob-plots} displays probability heatmaps for ``The \texttt{<noun>} ended in the year 17\YY\ and started in the year 17'' and ``The \texttt{<noun>} lasted from the year 7\YY\ BC to the year 7''. Both tasks are completed successfully, though note that the latter task is completed less well.
+
+        \begin{figure}
+            \centering
+            \includegraphics[width=\linewidth]{imgs/app/bc-ipps.pdf}
+            \caption{Iterative path patching plots ($C$, logits) for ``The \texttt{<noun>} ended in the year 17\YY\ and started in the year 17'' (left) and ``The \texttt{<noun>} lasted from the year 7\YY\ BC to the year 7'' (right).} \label{fig:partial-success-ipp}
+        \end{figure}
+
+    As with the other tasks using this circuit, the iterative path patching plots (\Cref{fig:partial-success-ipp}) look similar to those of year-span prediction. Note that since the goal for these tasks is to produce ``less-than'', patching and impeding circuit components improves task performance (indicated in blue rather than red), since the circuit performs ``greater-than''. We evaluate the circuit on each of tasks using the methodology from \Cref{sec:circuit-finding}. This works for both tasks, with performance recoveries $>90\%$.
+
+    \section{Noun Pool for Templated Sentences}\label{app:potential-nouns}
+    We use the following nouns in our main template: abduction, accord, affair, agreement, appraisal, assaults, assessment, attack, attempts, campaign, captivity, case, challenge, chaos, clash, collaboration, coma, competition, confrontation, consequence, conspiracy, construction, consultation, contact, contract, convention, cooperation, custody, deal, decline, decrease, demonstrations, development, disagreement, disorder, dispute, domination, dynasty, effect, effort, employment, endeavor, engagement, epidemic, evaluation, exchange, existence, expansion, expedition, experiments, fall, fame, flights, friendship, growth, hardship, hostility, illness, impact, imprisonment, improvement, incarceration, increase, insurgency, invasion, investigation, journey, kingdom, marriage, modernization, negotiation, notoriety, obstruction, operation, order, outbreak, outcome, overhaul, patrols, pilgrimage, plague, plan, practice, process, program, progress, project, pursuit, quest, raids, reforms, reign, relationship, retaliation, riot, rise, rivalry, romance, rule, sanctions, shift, siege, slump, stature, stint, strikes, study, test, testing, tests, therapy, tour, tradition, treaty, trial, trip, unemployment, voyage, warfare, work.
+
+    For the \texttt{<luxury good>} noun considered in the generalization section, we use a smaller pool of nouns: gem, necklace, watch, ring, suitcase, scarf, suit, shirt, sweater, dress, fridge, TV, bed, bike, lamp, table, chair, painting, sculpture, plant.
+
+    \section{Applying the Circuits Approach to Other Problems}\label{app:circuits-other-problems}
+
+    In order to find a circuit for a given model ability, one must define a task, dataset, and metric; one can then apply the path patching approaches we use. However, task, dataset, and metric design are important; not just any task, dataset, or metric will be compatible. In this section, we discuss the qualities that a task, dataset, and metric should have, in order to be used with our approach.
+
+    \paragraph{Task} The path-patching approach is compatible with a variety of tasks. The chosen task should:
+
+    \begin{itemize}
+        \item Have a clearly delimited set of correct and incorrect answers for each example.
+        \item Require only one forward pass of the model (as opposed to e.g. generation tasks which require multiple passes).
+        \item Be solvable by your model: if your model cannot solve the task, there may be no circuit. At minimum, the model should exhibit consistent behavior (even if it’s not exactly correct)
+    \end{itemize}
+    
+    The granularity of insights will depend on the granularity of the task chosen. Complex tasks like natural language inference could require different (sub-)circuits depending on the specific question; it might be hard to find one precise circuit responsible for the task. Smaller, simpler tasks will likely yield easier to interpret results.
+
+    For the purpose of this example, we consider the task of fact retrieval, much akin to the task of \citet{meng2022locating}. Each input will have an (ideally single-token) correct answer, which can be predicted with one forward pass. Moreover, it seems possible that facts are mostly stored and retrieved using the same circuit.
+
+    \paragraph{Dataset} Path-patching requires two datasets: a normal and corrupted dataset. The normal dataset is just a collection of examples/inputs for the task; its examples should:
+    
+    \begin{itemize}
+        \item Clearly indicate the task at hand. LMs perform language modeling, and do not natively perform other tasks; they may leak probability to answers that are not correct or incorrect, but simply task-irrelevant. The inputs to the LM should push as much probability as possible onto the task's output space.
+        \item Allow evaluation based on only the distribution over possible next tokens (generated via one forward pass)
+        \item Be representative of your task. Your choice of datasets effectively define the scope of the phenomenon you study, so it is essential that the scopes of the dataset and the intended task match!
+    \end{itemize}
+    
+    Each example from the normal dataset should have a corresponding corrupted example / input. The corrupted input should:
+
+    \begin{itemize}
+        \item form a minimal pair with the normal input: they should differ minimally from each other (being the same length, and differing by only one or two tokens)
+        \item elicit a different model response, with a distinct correct answer, compared to the normal input
+        \item belong to the same sort of task. We locate the circuit by activating the same circuit with two different inputs.
+    \end{itemize}
+    
+    For fact retrieval, a normal input could be "Paris is the capital of"; the corrupted counterpart could be "Rome is the capital of". Both of these examples are reasonable input for fact retrieval, but the two will elicit very different responses. Note that an input like "Paris is in" would be less appropriate, because it doesn't clearly indicate that the task is fact retrieval, or what fact should be retrieved.
+
+    \paragraph{Metric} The metric is a function that takes in model logits and labels. It should:
+
+    \begin{itemize}
+        \item Output a real number measuring model behavior/performance on the task.
+        \item Detect small changes in whether the model is behaving according to the normal or corrupted input, or somewhere in between. A continuous loss is thus preferable to metrics like 0-1 loss/accuracy.
+    \end{itemize} 
+    
+    One family of metrics used in previous work is the probability assigned to the correct answer(s), minus the probability of the incorrect answer(s) induced by the corrupted input. In the greater-than case, this is $p(y>$\YY$)$ - $p(y\leq$\YY$)$. For fact retrieval, we would compute $p$(France) - $p$(Italy). This family of metrics the model is implicitly sensitive to the model generating off-task output as this generally takes away from the probability of correct answers. It is explicitly sensitive to the probability of the corrupted input’s answer.
+
+    Other metrics are possible. For example, if it is difficult to quantify task performance, but still possible to create minimal pairs, one could simply measure the KL-divergence between the original and (partially) patched / corrupted distributions. However, this is harder to interpret, and less targeted at your actual task of interest.
+
+    \section{Computational Resources}
+    All experiments were performed on an Nvidia A100 GPU. The path patching experiments and circuit semantics experiments take no longer than an hour to complete. The generalization experiments take a similar amount of time, being very similar to the original experiments. The neuron-level experiments (in particular finding top neurons) can take multiple hours to run. Overall, the final experiments can be run in less than 24 hours.
+
+	
+\end{document}
