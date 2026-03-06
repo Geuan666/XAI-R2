@@ -86,7 +86,7 @@ def plot_mlps_ipp_panels(
     vmax = float(np.quantile(np.abs(all_vals), 0.995))
     vmax = max(vmax, 1e-6)
 
-    fig, axes = plt.subplots(rows, cols, figsize=(13.4, 5.1 * rows), dpi=220)
+    fig, axes = plt.subplots(rows, cols, figsize=(12.5, 5.0 * rows), dpi=220, constrained_layout=True)
     axes = np.atleast_1d(axes).reshape(rows, cols)
 
     for i, k in enumerate(keys):
@@ -113,14 +113,14 @@ def plot_mlps_ipp_panels(
         tops = top_heads_from_mat(mat, top_k_annot)
         text = "\n".join([f"L{l}H{h}: {v:.3f}" for l, h, v in tops])
         ax.text(
-            0.985,
-            0.03,
+            1.01,
+            0.5,
             text,
             transform=ax.transAxes,
-            va="bottom",
-            ha="right",
-            fontsize=7,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.80, edgecolor="0.8"),
+            va="center",
+            ha="left",
+            fontsize=8,
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.85, edgecolor="0.8"),
         )
 
     # hide unused axes
@@ -133,12 +133,10 @@ def plot_mlps_ipp_panels(
     import matplotlib.colors as mcolors
 
     sm = ScalarMappable(norm=mcolors.Normalize(vmin=-vmax, vmax=vmax), cmap="RdBu_r")
-    fig.subplots_adjust(right=0.90, wspace=0.30, hspace=0.20, top=0.90)
-    cax = fig.add_axes([0.915, 0.15, 0.018, 0.70])
-    cbar = fig.colorbar(sm, cax=cax)
+    cbar = fig.colorbar(sm, ax=axes, fraction=0.022, pad=0.02)
     cbar.set_label("CT Rescue Impact (center=0)")
 
-    fig.suptitle("IPP via Multiple Key MLPs (paper-style mlps-ipp panels)", y=0.975, fontsize=15)
+    fig.suptitle("IPP via Multiple Key MLPs (paper-style mlps-ipp panels)", y=1.02, fontsize=15)
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
 

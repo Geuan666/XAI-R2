@@ -1,0 +1,2 @@
+key_mlp,support_mlp,head_key_layer,head_key_idx,head_support_layer,head_support_idx,table_key_mlp_ap,table_support_mlp_ap,table_support_mlp_ct_to_key,table_head_key_ap,table_head_key_ct_to_key,table_head_support_ct_to_support
+27,22,24,6,20,5,0.1924667881756294,0.0349236465081935,0.0210262435238535,0.1909294997046633,0.1139864089285455,0.0272316729150166

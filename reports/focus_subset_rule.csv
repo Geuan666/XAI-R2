@@ -1,0 +1,2 @@
+kept_n,total_n,delta_threshold_q25,order_rule
+123,164,0.43676948547363287,"p_suff desc, then p_clean desc, then p_corr asc"

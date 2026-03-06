@@ -4,17 +4,49 @@
 - Multiple key downstream MLPs were traced with conditioned path patching to test whether upstream head structure is stable or MLP-specific.
 - Figure: `figs/mlps_ipp_panels.png`
 
-## 2. AP-CT Agreement (with Significance, n=448 heads)
-- MLP11: r=0.0883, p=6.18e-02, 95%CI=[-0.0044, 0.1795]
-- MLP22: r=0.6784, p=1.04e-61, 95%CI=[0.6251, 0.7255]
-- MLP26: r=0.1337, p=4.58e-03, 95%CI=[0.0416, 0.2236]
-- MLP27: r=0.9499, p=2.15e-227, 95%CI=[0.9400, 0.9582]
+## 2. AP-CT Agreement
+- MLP11: Pearson r(AP head impact, CT rescue) = 0.0883
+- MLP22: Pearson r(AP head impact, CT rescue) = 0.6784
+- MLP26: Pearson r(AP head impact, CT rescue) = 0.1337
+- MLP27: Pearson r(AP head impact, CT rescue) = 0.9499
 
 ## 3. Top Upstream Heads per Key MLP
-- MLP11 top8: L10H5(0.0434), L10H2(0.0388), L9H5(0.0379), L11H6(0.0340), L11H5(0.0174), L2H15(0.0121), L7H9(0.0109), L11H10(0.0108)
-- MLP22 top8: L20H5(0.0272), L21H12(0.0269), L21H1(0.0257), L17H8(0.0222), L17H2(0.0190), L16H13(0.0156), L15H4(0.0119), L16H8(0.0113)
-- MLP26 top8: L24H6(0.0402), L22H7(0.0304), L20H14(0.0234), L24H14(0.0208), L26H15(0.0207), L26H10(0.0184), L17H1(0.0163), L17H12(0.0149)
-- MLP27 top8: L24H6(0.1140), L21H1(0.0996), L17H8(0.0912), L21H12(0.0841), L20H5(0.0654), L16H13(0.0486), L23H6(0.0416), L17H2(0.0411)
+- MLP11:
+  - L10H5: rescue=0.043394
+  - L10H2: rescue=0.038835
+  - L9H5: rescue=0.037942
+  - L11H6: rescue=0.033954
+  - L11H5: rescue=0.017445
+  - L2H15: rescue=0.012133
+  - L7H9: rescue=0.010926
+  - L11H10: rescue=0.010833
+- MLP22:
+  - L20H5: rescue=0.027232
+  - L21H12: rescue=0.026900
+  - L21H1: rescue=0.025657
+  - L17H8: rescue=0.022248
+  - L17H2: rescue=0.019010
+  - L16H13: rescue=0.015551
+  - L15H4: rescue=0.011934
+  - L16H8: rescue=0.011262
+- MLP26:
+  - L24H6: rescue=0.040230
+  - L22H7: rescue=0.030432
+  - L20H14: rescue=0.023409
+  - L24H14: rescue=0.020793
+  - L26H15: rescue=0.020673
+  - L26H10: rescue=0.018368
+  - L17H1: rescue=0.016340
+  - L17H12: rescue=0.014892
+- MLP27:
+  - L24H6: rescue=0.113986
+  - L21H1: rescue=0.099647
+  - L17H8: rescue=0.091230
+  - L21H12: rescue=0.084102
+  - L20H5: rescue=0.065410
+  - L16H13: rescue=0.048572
+  - L23H6: rescue=0.041604
+  - L17H2: rescue=0.041062
 
 ## 4. Overlap Matrix
 - Top-head set overlap (Jaccard, top-16 each panel):

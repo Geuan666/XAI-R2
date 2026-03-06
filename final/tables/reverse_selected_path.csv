@@ -1,0 +1,2 @@
+key_mlp,head_layer,head_idx,table_ap_mlp_impact,table_ap_head_impact,table_ct_head_rescue,measured_ap_mlp_drop,measured_ap_head_drop,measured_ct_head_rescue
+27,24,6,0.1924667881756294,0.1909294997046633,0.1139864089285455,0.19173350639459563,0.1925037256101283,0.11938769134079541

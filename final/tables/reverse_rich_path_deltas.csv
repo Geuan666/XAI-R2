@@ -1,0 +1,7 @@
+quantity,value
+ap_drop_key_mlp,0.19173350639459563
+ap_drop_head_key,0.1925037256101283
+ct_rescue_head_key_via_key_mlp,0.11938769134079541
+ap_drop_head_support,0.12817471765163468
+ct_rescue_head_support_via_support_mlp,0.0268728175177807
+ct_rescue_head_support_via_support_plus_key,0.06930264667039965

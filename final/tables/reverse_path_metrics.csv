@@ -1,0 +1,9 @@
+metric,value
+pd_base,0.6053718561079444
+pd_mlp_patch,0.4136383497133488
+pd_head_patch,0.4128681304978161
+pd_head_patch_key_restore,0.5322558218386115
+ap_drop_mlp,0.19173350639459563
+ap_drop_head,0.1925037256101283
+ct_rescue_head,0.11938769134079541
+mediated_fraction_head_via_key_mlp,0.6201837962448963
